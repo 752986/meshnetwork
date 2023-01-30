@@ -1,87 +1,74 @@
-use std::{
-    collections::HashMap,
-    io::{read_to_string, BufRead, BufReader, Read, Write},
-    net::{Shutdown, TcpListener, TcpStream},
+mod server;
+
+use crossterm::{
+    cursor, event, queue, style,
+    style::Color::{Black, White},
+    terminal,
 };
+use std::io::Write;
 
 fn main() {
-    let listener: TcpListener =
-        TcpListener::bind("0.0.0.0:42069").expect("unable to bind listener");
+    let mut stdout = std::io::stdout();
+    terminal::enable_raw_mode().unwrap();
+    queue!(stdout, terminal::EnterAlternateScreen, terminal::Clear(terminal::ClearType::All)).unwrap();
+
+    let mut current_text = String::new();
+
+    draw_text_box("");
 
     loop {
-        match listener.accept() {
-            Ok((mut client, ip)) => {
-                println!("accepted incoming connection from {ip}");
-                client.write_all(b"hello from declan!").unwrap();
-                let mut reader = BufReader::new(&client);
-                loop {
-                    let mut response = String::new();
-                    match reader.read_line(&mut response) {
-                        Ok(0) | Err(_) => break,
-                        Ok(_) => print!("{}", &response),
-                    }
+        match event::read().unwrap() {
+            event::Event::Key(key) => {
+                if let event::KeyCode::Char('q') = key.code {
+                    break;
+                } else if let event::KeyCode::Char(c) = key.code {
+                    current_text.push(c);
+                } else if event::KeyCode::Backspace == key.code {
+                    current_text.pop();
                 }
-                println!("disconnected from {ip}");
+                draw_text_box(&current_text);
             }
-            Err(ip) => {
-                println!("unable to connect to client at {ip}");
-            }
+            _ => {}
         }
     }
+    queue!(stdout, terminal::LeaveAlternateScreen).unwrap();
 }
 
-type Id = u32;
+fn draw_text_box(text: &str) {
+    let mut stdout = std::io::stdout();
+    let terminal_size = terminal::size().unwrap();
 
-struct Peer {
-    stream: TcpStream,
-}
+    let n_lines = text.len() / terminal_size.0 as usize;
 
-impl Peer {
-    fn send(&mut self, data: PacketData) {
-        // turn the given packetdata into bytes and send it to the peer
-        todo!()
-        // self.stream.write_all(data);
+    queue!(stdout, style::SetColors(style::Colors::new(Black, White))).unwrap();
+    // stdout.write_all(&b" ".repeat(terminal_size.0 as usize - 1)).unwrap();
+    // stdout.flush().unwrap();
+    // execute!(stdout, cursor::MoveToColumn(0)).unwrap();
+
+    let lines = wrap_text(text, terminal_size.0 as usize);
+
+    for i in 0..n_lines + 1 {
+        queue!(
+            stdout,
+            cursor::MoveTo(0, (terminal_size.0 - n_lines as u16) + i as u16)
+        ).unwrap();
+        // stdout.write_all(format!("{1:<0$}", terminal_size.0 as usize, &text[(terminal_size.0 as usize * i)..terminal_size.0 as usize * (i + 1)]).as_bytes()).unwrap();
+        stdout.write_all(
+            format!(
+                "{1:<0$}",
+                terminal_size.0 as usize,
+                &text[lines[i]..lines[i+1]]
+            )
+            .as_bytes(),
+        ).unwrap();
     }
+    stdout.flush().unwrap();
 }
 
-struct Packet<'a> {
-    from: Peer,
-    data: PacketData<'a>,
-}
-
-enum PacketData<'a> {
-    /// A notification that a new piece of data is available
-    Available { id: Id },
-    /// A request for data with the given id
-    Request { id: Id },
-    /// A piece of data
-    Data { id: Id, data: &'a [u8] },
-}
-
-struct Server {
-    seen_data: HashMap<Id, Vec<u8>>,
-    connections: Vec<Peer>,
-}
-
-impl Server {
-    fn handleIncomingPacket(&mut self, mut packet: Packet) {
-        match packet.data {
-            PacketData::Request { id } => {
-                if self.seen_data.contains_key(&id) {
-                    packet.from.send(PacketData::Data {
-                        id,
-                        data: &self.seen_data[&id],
-                    })
-                }
-            }
-            PacketData::Available { id } => {
-                if !(self.seen_data.contains_key(&id)) {
-                    packet.from.send(PacketData::Request { id })
-                }
-            }
-            PacketData::Data { id, data } => {
-                self.seen_data.insert(id, data.to_vec());
-            }
-        }
-    }
+fn wrap_text(text: &str, line_length: usize) -> Vec<usize> {
+    let n_breaks = text.len() / line_length;
+    let mut result: Vec<usize> = Vec::with_capacity(n_breaks + 2);
+    result.extend((0..=n_breaks).map(|i| i * line_length));
+    result.push(text.len());
+    return result;
 }
