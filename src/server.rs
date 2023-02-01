@@ -12,7 +12,7 @@ fn main() {
         match listener.accept() {
             Ok((mut client, ip)) => {
                 println!("accepted incoming connection from {ip}");
-                client.write_all(b"hello from declan!").unwrap();
+                client.write_all(b"hello!").unwrap();
                 let mut reader = BufReader::new(&client);
                 loop {
                     let mut response = String::new();
@@ -58,12 +58,24 @@ enum PacketData<'a> {
     Data { id: Id, data: &'a [u8] },
 }
 
-struct Server {
+pub struct Server {
     seen_data: HashMap<Id, Vec<u8>>,
     connections: Vec<Peer>,
 }
 
 impl Server {
+    pub fn new() -> Server {
+        return Server {
+            seen_data: HashMap::new(),
+            connections: Vec::new(),
+        }
+    }
+
+    pub fn send_message(&self, message_text: &str) {
+        println!("sent message: {}", message_text);
+        todo!();
+    }
+
     fn handleIncomingPacket(&mut self, mut packet: Packet) {
         match packet.data {
             PacketData::Request { id } => {
